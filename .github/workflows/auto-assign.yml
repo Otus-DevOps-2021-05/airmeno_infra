@@ -5,4 +5,4 @@ jobs:
   add-reviews:
     runs-on: ubuntu-latest
     steps:
-      - uses: Otus-DevOps-2021-05/airmeno_infra@v1.1.2
+      - uses: kentaro-m/auto-assign-action@v1.1.2
