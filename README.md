@@ -11,14 +11,15 @@
 4. VPN-сервер для серверов Yandex.Cloud
 5. Дополнительное задание: валидный сертификат для панели управления VPNсервера
 
+## Решение
 <details>
-  <summary>## Решение</summary>
+  <summary>Решение</summary>
 
 ### Подключение через бастион хост
 
 ```
-bastion_IP = 178.154.255.64
-someinternalhost_IP = 10.128.0.23
+bastion_IP = 178.154.246.27
+someinternalhost_IP = 10.128.0.24
 ```
 
 
@@ -86,9 +87,9 @@ https://<адрес bastion VM>/setup
 
 ### 5. Дополнительное задание: валидный сертификат для панели управления VPNсервера
 
-Домен для bostion - 178-154-255-64.sslip.io
+Домен для bostion - 178-154-246-27.sslip.io
 
-Доступ к printunl - https://178-154-255-64.sslip.io
+Доступ к printunl - https://178-154-246-27.sslip.io
 
 ![Image 1](images/bostion1.png)
 
