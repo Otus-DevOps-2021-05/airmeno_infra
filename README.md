@@ -163,7 +163,7 @@ yc compute instance create \
 
 Необходимые данные
 ```
-testapp_IP = 178.154.205.29
+testapp_IP = 178.154.255.64
 testapp_port = 9292
 ```
 
