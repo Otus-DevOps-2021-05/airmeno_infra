@@ -6,16 +6,18 @@ users:
       sudo: ALL=(ALL) NOPASSWD:ALL
       shell: /bin/bash
       ssh-authorized-keys:
-        - "ssh-rsa AAAAB3NzaC....= appuser@desktop"
+        - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDFAzhpDt3gtgp5uX0eRgPKwqjMqZZAH265MoQ67qgxKC8K0XDMINlF1ndRs0qMU8gge4iYTNcTc/f27bQhY5DkqhjAhIWndq36AlIWT5fsQ2tWH3DBUfIgRbyq28LBBcFvOvC/lKxtJkqKLlWYq/uVmPMpxNblB63EhmV1FFrFLDjL7gyz/Ifx86+4jS0617CRSXI4aP6o/YgI/iqWkVtYYedMBIoI/CdvEUD+oWBRpFYi+PEj+Hrvzhny+ADrcHPgbBkgJVZIRBKrbx7GEvFcm4eWjHy2FQYSP1qAFdEvQnQ83hFzPWVukPJOzui6DAas98Z6FbTtd353r6nsEFu6SY5owsUgutvxbVhQ4P9Sr+hkBoggZ1UIWlbZap++l7VSmUxQmIB2p4cEW11k6uqLknrRTSUZdIjc6i+zjJHYiVhWG9a1vqdI7kdTMrbs2Z4UinaPxLq14LWmKgaNJ8VFZnwovJl/iFHzEthaiTAZzh6d0U39aTUyi0i4iR6I5Nc= meno@meno-hp-pavilion-x360"
 
 runcmd:
+  - sudo apt-get update
+  - sudo apt-get install -y ruby-full ruby-bundler build-essential git
+
   - wget -qO - https://www.mongodb.org/static/pgp/server-4.2.asc | sudo apt-key add -
   - echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/4.2 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.2.list
-
   - sudo apt-get update
-  - sudo apt-get install -y ruby-full ruby-bundler build-essential mongodb-org git
-
-  - sudo systemctl enable --now mongod
+  - sudo apt-get install -y mongodb-org
+  - sudo systemctl start mongod
+  - sudo systemctl enable mongod
 
   - git clone -b monolith https://github.com/express42/reddit.git
   - cd reddit && bundle install
