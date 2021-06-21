@@ -96,3 +96,125 @@ https://<адрес bastion VM>/setup
 ![Image 2](images/bostion2.png)
 
 </details>
+
+
+# Lesson 5 (YC App Deploy)
+
+## Задание
+
+1. Установим и настроим yc CLI для работы с нашим аккаунтом;
+2. Создадим хост с помощью CLI;
+3. Установим на нем ruby для работы приложения;
+4. Установим MongoDB и запустим;
+5. Задеплоим тестовое приложение, запустим и проверим его работу.
+
+6. Дополнительное задание: созданиe startup script, который будет запускаться при создании инстанса.
+
+## Решение
+<details>
+  <summary>Решение</summary>
+
+### 1. Установим и настроим yc CLI для работы с нашим аккаунтом
+
+Установим:
+```
+curl https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+```
+
+Проиницилизируем и создадим профиль (по-умолчанию):
+
+```
+yc init
+```
+
+Вводим имя нашего  аккаунта на Яндекс Облако, получаем токен, далее создаем профиль, выбираем каталог созданный в профиле "облака" и зону размещения.
+
+Прверим наш профиль:
+```
+yc config profile get <имя профиля>
+```
+Имя профиля = default
+
+
+Некоторые команды для управления инстансами в YC:
+
+```
+yc compute instance list
+
+yc compute instance start/stop <INSTANCE-NAME>
+
+yc compute instance delete <INSTANCE-NAME>
+
+yc compute instance get --full <INSTANCE-NAME>
+```
+
+### 2. Создадим хост с помощью CLI
+
+```
+yc compute instance create \
+  --name reddit-app \
+  --hostname reddit-app \
+  --memory=4 \
+  --create-boot-disk image-folder-id=standard-images,image-family=ubuntu-1604-lts,size=10GB \
+  --network-interface subnet-name=default-ru-central1-a,nat-ip-version=ipv4 \
+  --metadata serial-port-enable=1 \
+  --ssh-key ~/.ssh/appuser.pub
+```
+
+Необходимые данные
+```
+testapp_IP = 178.154.203.173
+testapp_port = 9292
+```
+
+### Задачи с 3 по 5 пункты
+
+ - [install_ruby.sh](install_ruby.sh)
+ - [install_mongodb.sh](install_mongodb.sh)
+ - [deploy.sh](deploy.sh)
+
+
+Сделаем скрипты исполняемыми:
+
+```
+chmod +x *.sh
+```
+
+### 6. Дополнительное задание: созданиe startup script, который будет запускаться при создании инстанса
+
+Объеденим скрипты в единый и оптимизируем исполнение:
+
+
+[startup-script.sh](startup-script.sh)
+```
+#!/bin/bash
+
+wget -qO - https://www.mongodb.org/static/pgp/server-4.2.asc | sudo apt-key add -
+echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/4.2 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.2.list
+
+sudo apt-get update
+sudo apt-get install -y ruby-full ruby-bundler build-essential mongodb-org git
+
+sudo systemctl enable --now mongod
+
+git clone -b monolith https://github.com/express42/reddit.git
+cd reddit && bundle install
+puma -d
+```
+
+Создадим файл с метаданными [metadata.yaml](metadata.yaml) и команду для создания инстанса:
+
+```
+yc compute instance create \
+  --name reddit-app \
+  --hostname reddit-app \
+  --memory=4 \
+  --create-boot-disk image-folder-id=standard-images,image-family=ubuntu-1604-lts,size=10GB \
+  --network-interface subnet-name=default-ru-central1-a,nat-ip-version=ipv4 \
+  --metadata serial-port-enable=1 \
+  --metadata-from-file user-data=metadata.yaml
+```
+
+После создания инстанса автоматически будет выполнен заданный скрипт. 
+
+</details> 
