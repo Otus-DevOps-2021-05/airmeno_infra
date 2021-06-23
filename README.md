@@ -218,3 +218,256 @@ yc compute instance create \
 После создания инстанса автоматически будет выполнен заданный скрипт. 
 
 </details> 
+
+
+# Lesson 5 (YC App Deploy)
+
+## Задание
+
+1. Создание новой ветки
+2. Установка Packer
+3. Создание сервисного аккаунта на YC
+4. Подготовка и сборка образа с помощью Packer
+
+5. `*` Построение bake-образа
+6. `*` Автоматизация создания ВМ
+
+## Решение
+<details>
+  <summary>Решение</summary>
+
+### 1. Создание новой ветки
+
+Создаем новую ветку в репозитории и переносим в директорию config-scripts все скрипты из предыдущего задания:
+
+```
+git checkout -b packer-base
+
+git mv *.sh config-scripts/ && git mv metadata.yaml config-scripts/
+```
+
+### 2. Установка Packer 
+
+https://www.packer.io/downloads
+
+```
+curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
+sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+sudo apt-get update && sudo apt-get install packer
+```
+
+Проверим:
+
+```
+$  packer -v
+
+1.7.3
+```
+
+### 3. Сервсиный аккаунт для Packer
+
+Получим данные для нашего YC:
+
+```
+yc config list
+```
+
+Из параметров нужен `folder-id`. Создаем переменные для окружения (будем использовать в разных местах):
+
+```
+SVC_ACCT="packer-user"
+FOLDER_ID="folder-id_from_config"
+```
+
+Создаем сервисный аккаунт:
+
+```
+yc iam service-account create --name $SVC_ACCT --folder-id $FOLDER_ID
+```
+
+Если посмотреть в YC => Каталог => Сервисные аккаунты, то увидим, что пользователь создан, но у него нет роли. Назначить роль можно через веб, но создадим через консоль:
+
+```
+ACCT_ID=$(yc iam service-account get $SVC_ACCT | grep ^id | awk '{print $2}')
+
+yc resource-manager folder add-access-binding --id $FOLDER_ID --role editor --service-account-id $ACCT_ID
+``` 
+
+Если проверить через веб, можно убедиться, что `packer-user` уже имеет роль `editor`.
+
+**Создаем service account key file**
+
+Создаем и сохраняем за переделами репозитория IAM key:
+```
+yc iam key create --service-account-id $ACCT_ID --output ~/key.json
+```
+
+### 4. Подготовка и сборка образа с помощью Packer
+
+**Создание файла-шаблона Packer**
+
+Создаем директорию `packer` и внутри файл `ubuntu16.json`. Создаем builders и provisioners
+
+
+```
+{
+    "builders": [
+        {
+            "type": "yandex",
+            "service_account_key_file": "~/key.json",
+            "folder_id": "b1gqsnnn5lhvmg8osug4",
+            "source_image_family": "ubuntu-1604-lts",
+            "image_name": "reddit-base-{{timestamp}}",
+            "image_family": "reddit-base",
+            "ssh_username": "ubuntu",
+            "platform_id": "standard-v1"
+        }
+    ]
+}
+
+{
+    "builders": [
+        {
+            "type": "yandex",
+            "service_account_key_file": "~/key.json",
+            "folder_id": "folder-id_from_config",
+            "source_image_family": "ubuntu-1604-lts",
+            "image_name": "reddit-base-{{timestamp}}",
+            "image_family": "reddit-base",
+            "ssh_username": "ubuntu",
+            "platform_id": "standard-v1",
+            "use_ipv4_nat": "true"
+        }
+    ],
+    "provisioners": [
+        {
+            "type": "shell",
+            "script": "scripts/install_ruby.sh",
+            "execute_command": "sudo {{.Path}}"
+        },
+        {
+            "type": "shell",
+            "script": "scripts/install_mongodb.sh",
+            "execute_command": "sudo {{.Path}}"
+        }
+    ]
+}
+```
+
+Скопируем скрипты в указанные директории из `ubuntu16.json`.
+
+Выполним проверку на синтаксис:
+
+```
+packer validate ./ubuntu16.json
+```
+
+**Вероятные ошибки:**
+
+```
+==> yandex: Error creating network: server-request-id = b8b864e7-e820-4279-9d77-c4bc141ec3ec server-trace-id = d4660b864ca49486:a91e4f7eb2529a2b:d4660b864ca49486:1 client-request-id = 407e35ae-ca89-43c0-8b47-d974ef6029a6 client-trace-id = ae43a2fb-40e8-43b2-9aaf-125ecb4a8f59 rpc error: code = ResourceExhausted desc = Quota limit vpc.networks.count exceeded
+Build 'yandex' errored after 1 second 523 milliseconds: Error creating network: server-request-id = b8b864e7-e820-4279-9d77-c4bc141ec3ec server-trace-id = d4660b864ca49486:a91e4f7eb2529a2b:d4660b864ca49486:1 client-request-id = 407e35ae-ca89-43c0-8b47-d974ef6029a6 client-trace-id = ae43a2fb-40e8-43b2-9aaf-125ecb4a8f59 rpc error: code = ResourceExhausted desc = Quota limit vpc.networks.count exceeded
+```
+
+Удалим все созданные сети (подсети).
+
+```
+==> yandex: Provisioning with shell script: scripts/install_ruby.sh
+
+...
+
+==> yandex:
+==> yandex: WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
+==> yandex:
+==> yandex: E: Could not get lock /var/lib/dpkg/lock-frontend - open (11: Resource temporarily unavailable)
+==> yandex: E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), is another process using it?
+```
+
+Говорит о том, что apt чем-то занят и не может залочить для установки другого пакета. Посмотрим скрипт `install_ruby.sh`. Предположительно `apt update` не успел закочить процесс, а `apt install` уже пытается установить. Сделаем паузу между этими командами:
+
+```
+echo "Sleep 30 sec for apt update"; sleep 30s; echo "start apt install"
+
+```
+
+**Проверка образа**
+
+Создаем ВМ на основе нашего образа и ставим reddit:
+
+```
+sudo apt-get update
+sudo apt-get install -y git
+git clone -b monolith https://github.com/express42/reddit.git
+cd reddit && bundle install
+puma -d
+```
+
+http://vm_ip_adress:9292 
+
+**Параметризирование шаблона**
+
+Создаем `variables.json`, `.gitignore` файлы и для коммита в репозиторий `variables.json.examples`. В gitignore включаем variables.json.
+
+```
+$ cat variables.json.examples
+
+{
+  "key": "key.json",
+  "folder_id": "folder-id_from_config",
+  "image": "ubuntu-1604-lts"
+}
+```
+
+Вносим изменения в файл [ubuntu16.json](packer/ubuntu16.json).
+
+
+Проверим и запустим сборку:
+
+```
+packer validate -var-file=./variables.json ./ubuntu16.json
+packer build -var-file=./variables.json ./ubuntu16.json
+```
+
+### 5. Построение bake-образа `*`
+
+На основе ubuntu16.json создадим immutable.json и заменим требуемые значения согласно инструкции.
+
+Напишем [systemd unit](packer/files/puma.service) для запуска puma. Подготивим [immutable.json](packer/immutable.json).
+
+Проверим и запустим сборку:
+
+```
+packer validate -var-file=./variables.json ./immutable.json
+packer build -var-file=./variables.json ./immutable.json
+```
+
+Проверим наши имиджы и запомним id, он понадобится для скрипта `config-scripts/create-reddit-mv.sh`:
+
+```
+yc compute image list
+```
+
+После сборки создадим сеть и подсети, поскольку мы удалили из-за ошибки в сборке и ограничений в ЯО, можно через веб или:
+
+```
+yc vpc network create --name default
+```
+
+Не забываем создавать подсети:
+
+```
+ yc vpc subnet create --name test-subnet-1 \
+  --description "My test subnet" \
+  --folder-id b1g6ci08ma55klukmdjs \
+  --network-id enplom7a98s1t0lhass8 \
+  --zone ru-central1-b \
+  --range 192.168.0.0/24
+```
+> https://cloud.yandex.ru/docs/vpc/operations/subnet-create
+
+
+### 6. Автоматизация создания ВМ `*`
+
+Cкрипт создания ВМ [create-reddit-mv.sh](config-scripts/create-reddit-mv.sh)
+
+</details>  
