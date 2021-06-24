@@ -98,7 +98,7 @@ https://<адрес bastion VM>/setup
 </details>
 
 
-# Lesson 5 (YC App Deploy)
+# Lesson 6 (YC App Deploy)
 
 ## Задание
 
@@ -220,7 +220,7 @@ yc compute instance create \
 </details> 
 
 
-# Lesson 5 (YC App Deploy)
+# Lesson 7 (YC Packer)
 
 ## Задание
 
