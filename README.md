@@ -468,6 +468,6 @@ yc vpc network create --name default
 
 ### 6. Автоматизация создания ВМ `*`
 
-Cкрипт создания ВМ [create-reddit-mv.sh](config-scripts/create-reddit-mv.sh)
+Cкрипт создания ВМ [create-reddit-mv.sh](config-scripts/create-reddit-vm.sh)
 
 </details>  
