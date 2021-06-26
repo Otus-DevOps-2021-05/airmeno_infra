@@ -577,7 +577,7 @@ terraform apply
 ...
 ```
 
-добавим подключение по ssh, в `main.tf` добавим:
+добавим подключение по ssh, в `main.tf`:
 
 ```
 metadata = {
@@ -755,7 +755,7 @@ resource "yandex_lb_network_load_balancer" "lb" {
   }
 
   attached_target_group {
-    target_group_id = yandex_lb_target_group.loadbalancer.id
+    target_group_id = yandex_lb_target_group.reddit_target_group.id
 
     healthcheck {
       name = "tcp"
@@ -806,9 +806,8 @@ terraform apply
 ```
 resource "yandex_compute_instance" "app2" {
   name  = "reddit-app2"
-  #count = var.instance_count
 
-
+...
 ```
 
 в `outputs.tf` заменим на:
@@ -892,7 +891,7 @@ terraform apply -auto-approve
 
 Плюсы динамического расширения и балансировки:
 * не надо писать много кода (вероятность опечатки и ошибки);
-* тяжело масштабировать.
+* легко масштабировать.
 
 Минусы для данного решения:
 * нет общей базы mongodb (при потере инстанса, теряем и его базу).
