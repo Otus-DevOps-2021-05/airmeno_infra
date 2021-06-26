@@ -468,6 +468,435 @@ yc vpc network create --name default
 
 ### 6. Автоматизация создания ВМ `*`
 
-Cкрипт создания ВМ [create-reddit-mv.sh](config-scripts/create-reddit-vm.sh)
+Cкрипт создания ВМ [create-reddit-vm.sh](config-scripts/create-reddit-vm.sh)
 
 </details>  
+
+# Lesson 8 (YC Terraform 1)
+
+## Задание
+
+1. Установка Terraform и создание инфраструктуры
+2. Создание ВМ с помощью Terraform
+3. Входные переменные Terraform
+
+4. Балансировщик на 2 инстанса `*`
+
+## Решение
+<details>
+  <summary>Решение</summary>
+
+### 1. Установка Terraform 
+
+Установим terraform требуемой версии (0.12.8):
+
+```
+wget https://releases.hashicorp.com/terraform/0.12.8/terraform_0.12.8_linux_amd64.zip
+unzip terraform_0.12.8_linux_amd64.zip
+
+sudo mv terraform /usr/local/bin; rm terraform_0.12.8_linux_amd64.zip
+```
+Проверим:
+
+```
+$ terraform -v
+
+Terraform v0.12.8
+```
+
+Создаем директорию `terraform` и файл внутри файл `main.tf`. Редактируем файл `.gitignore`
+
+```
+...
+
+
+*.tfstate
+*.tfstate.*.backup
+*.tfstate.backup
+*.tfvars
+.terraform/
+```
+
+Для работы Terraform создадим сервисный аккаунт `terraform`:
+
+```
+yc config list
+
+FOLDER_ID="folder-id_from_config"
+
+уc iam service-account create --name terraform --folder-id $FOLDER_ID
+
+yc resource-manager folder add-access-binding --id $FOLDER_ID --role editor --service-account-id $(yc iam service-account get terraform | grep ^id | awk '{print $2}')
+
+yc iam key create --service-account-id terraform_user_id --output ~/terraform.json
+```
+
+Редактируем файл `main.tf`:
+
+```
+provider "yandex" {
+  version   = 0.35
+  token     = "<OAuth или статический ключ сервисного аккаунта>"
+  cloud_id  = "<идентификатор облака>"
+  folder_id = "<идентификатор каталога>"
+  zone      = "ru-central1-a"
+}
+```
+
+параметры для файла:
+
+```
+yc config list
+```
+
+Проводим инициализацию, будет загружен провайдер указанный в mian.tf (yandex):
+
+```
+terraform init
+```
+
+### 2. Создание ВМ с помощью Terraform
+
+
+Добавим требуемые условия (согласно инструкции) для создания новой ВМ в `main.tf` и даем комманды:
+
+```
+terraform plan
+
+terraform apply
+```
+
+Подправим ошибку в конфигурации:
+
+```
+...
+  resources {
+    cores  = 2
+    memory = 2
+  }
+...
+```
+
+добавим подключение по ssh, в `main.tf` добавим:
+
+```
+metadata = {
+  ssh-keys = "ubuntu:${file("~/.ssh/appuser.pub")}"
+}
+```
+
+и еще раз `terraform apply`
+
+```
+$ terraform show | grep nat_ip_address
+        nat_ip_address = "217.28.231.223"
+$ shh ubuntu@217.28.231.223
+```
+
+Успешно подключились.
+
+Создадим новый файл `outputs.tf` для вывода информации о создоваемый ВМ, чтоб каждый раз не использовать `terraform show`
+
+```
+output "external_ip_address_app" {
+  value = yandex_compute_instance.app.network_interface.0.nat_ip_address
+}
+```
+
+и проверим:
+
+```
+terraform refresh
+
+terraform output
+```
+
+**Создаем Provisioner**
+
+Добавляем в `main.tf` два provisioner-а:
+
+```
+provisioner "file" {
+  source = "files/puma.service"
+  destination = "/tmp/puma.service"
+}
+```
+[files/puma.service](terraform/files/puma.service) это systemd unit файл и:
+
+```
+provisioner "remote-exec" {
+  script = "files/deploy.sh"
+}
+```
+[files/deploy.sh](terraform/files/deploy.sh) это скрипт установки приложения.
+
+
+Парметры подключения провиженеров к ВМ:
+
+```
+connection {
+    type = "ssh"
+    host = yandex_compute_instance.app.network_interface.0.nat_ip_address
+    user = "ubuntu"
+    agent = false
+    # путь до приватного ключа
+    private_key = file("~/.ssh/yc")
+    }
+
+```
+
+Применим наши изменения:
+
+```
+terraform taint yandex_compute_instance.app
+terraform plan
+terraform apply
+```
+
+После успешного выполенения получим:
+
+```
+Apply complete! Resources: 1 added, 0 changed, 1 destroyed.
+
+Outputs:
+
+external_ip_address_app = 217.28.231.189
+```
+
+Наш сервис доступен http://217.28.231.189:9292
+
+### 3. Входные переменные Terraform
+
+Определим наши входные переменные. Создадим файл [variables.tf](terraform/variables.tf) и определим параметры в `main.tf`:
+
+```
+provider "yandex" {
+  service_account_key_file = var.service_account_key_file
+  cloud_id  = var.cloud_id
+  folder_id = var.folder_id
+  zone      = var.zone
+}
+```
+
+и 
+
+```
+  boot_disk {
+    initialize_params {
+      image_id = var.image_id
+    }
+  }
+
+  network_interface {
+    subnet_id = var.subnet_id
+    nat       = true
+  }
+
+  metadata = {
+  ssh-keys = "ubuntu:${file(var.public_key_path)}"
+  }
+
+```
+
+Создаем файл `terraform.tfvars`, из которого загружаются значения автоматически при каждом запуске:
+
+```
+cloud_id = "b1g7mh55020i2hpup3cj"
+folder_id = "b1g4871feed9nkfl3dnu"
+zone = "ru-central1-a"
+image_id = "fd8mmtvlncqsvkhto5s6"
+public_key_path = "~/.ssh/appuser.pub"
+subnet_id = "e9bem33uhju28r5i7pnu"
+service_account_key_file = "key.json"
+```
+
+Пересоздадим все ресурсы созданные при помощи terraform:
+
+```
+terraform destroy
+
+terraform plan
+terraform apply
+```
+
+
+### 4. Балансировщик на 2 инстанса `*`
+
+Создаем файл `lb.tf`, внитури блок целевой группы (target group):
+
+```
+resource "yandex_lb_target_group" "reddit_target_group" {
+  name      = "reddit-lb-group"
+  folder_id = var.folder_id
+  region_id = var.region_id
+
+  target {
+    address = yandex_compute_instance.app.network_interface.0.ip_address
+      subnet_id = var.subnet_id
+  }
+}
+```
+
+и создаем сам балансировщик соедененный с целевой группой:
+
+```
+resource "yandex_lb_network_load_balancer" "lb" {
+  name = "reddit-lb"
+  type = "external"
+
+  listener {
+    name        = "listener"
+    port        = 80
+    target_port = 9292
+
+    external_address_spec {
+      ip_version = "ipv4"
+    }
+  }
+
+  attached_target_group {
+    target_group_id = yandex_lb_target_group.loadbalancer.id
+
+    healthcheck {
+      name = "tcp"
+      tcp_options {
+        port = 9292
+      }
+    }
+  }
+}
+```
+
+Для удобства балансировщик слушает порт 80 и передает на порт нашего приложения 9292.
+
+Посмотреть балансировщики:
+
+```
+yc load-balancer target-group list
+
+yc load-balancer network-load-balancer list
+```
+
+> https://cloud.yandex.ru/docs/network-load-balancer/operations/internal-lb-create
+> https://registry.terraform.io/providers/yandex-cloud/yandex/0.44.0/docs/resources/lb_network_load_balancer
+> https://registry.terraform.io/providers/yandex-cloud/yandex/0.44.0/docs/resources/lb_target_group
+
+
+Добавим переменную на вывод external IP для балансировщика:
+
+``` 
+output "loadbalancer_ip_address" {
+  value = yandex_lb_network_load_balancer.lb.listener.*.external_address_spec[0].*.address
+}
+```
+
+Дадим команду на сборку:
+
+```
+terraform plan
+
+terraform apply
+```
+
+Проверим, что наше приложение доступно по адресу балансировщика.
+
+Добавим еще один инстанс **reddit-app2**:
+
+в `main.tf`:
+```
+resource "yandex_compute_instance" "app2" {
+  name  = "reddit-app2"
+  #count = var.instance_count
+
+
+```
+
+в `outputs.tf` заменим на:
+
+```
+output "external_ip_address_app" {
+  value = yandex_compute_instance.app[*].network_interface.0.nat_ip_address
+}
+```
+
+в `lb.tf` добавим еще один таргет:
+
+```
+target {
+  address = yandex_compute_instance.app2.network_interface.0.ip_address
+  subnet_id = var.subnet_id
+}
+```
+
+> Возможная ошибка:
+
+```
+Error: error executing "/tmp/terraform_2015131243.sh": Process exited with status 100
+```
+Установим паузу на выполнение скрипта 30 сек.
+
+
+**Создаем ВМ с помощью count**
+
+Добавим переменную в `variables.tf` со занчением по умолчанию = 1: 
+
+```
+variable instance_count {
+  description = "count instances"
+  default     = 1
+}
+```
+
+в `main.tf` удалим параметы для **reddit-app2** и добавим:
+
+```
+resource "yandex_compute_instance" "app" {
+  name  = "reddit-app-${count.index}"
+  count = var.instance_count
+
+...
+
+  connection {
+    type  = "ssh"
+    host  = self.network_interface.0.nat_ip_address
+    user  = "ubuntu"
+    agent = false
+    # путь до приватного ключа
+    private_key = file(var.private_key_path)
+  }
+```
+
+в `lb.tf` заменим значения target на dynamic:
+
+```
+  dynamic "target" {
+    for_each = yandex_compute_instance.app.*.network_interface.0.ip_address
+    content {
+      subnet_id = var.subnet_id
+      address   = target.value
+    }
+  }
+```
+
+Теперь меняя значение переменно `instance_count` можно получать данное значение инстансов за балансировщиком.
+
+> https://www.terraform.io/docs/language/expressions/dynamic-blocks.html
+> https://www.hashicorp.com/blog/hashicorp-terraform-0-12-preview-for-and-for-each
+
+
+```
+terraform plan
+
+terraform apply -auto-approve
+```
+
+Плюсы динамического расширения и балансировки:
+* не надо писать много кода (вероятность опечатки и ошибки);
+* тяжело масштабировать.
+
+Минусы для данного решения:
+* нет общей базы mongodb (при потере инстанса, теряем и его базу).
+
+
+
+</details>
