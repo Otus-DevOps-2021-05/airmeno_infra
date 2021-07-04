@@ -1601,4 +1601,121 @@ appserver | SUCCESS => {
         dest: /home/appuser/reddit
 ```
 
+### 4. Динамический инвентори в формате json ⭐
+
+Создаем файл `inventory.json` который будет у нас скриптом. Скрипт будет в формате согласно документации - https://nklya.medium.com/динамическое-инвентори-в-ansible-9ee880d540d6.
+
+```
+if [[ "$1" == "--list" ]]; then
+
+cat<<EOF
+{
+    "_meta": {
+        "hostvars": {
+            "${yc_instances_app[0]}": {
+                "ansible_host": "${yc_instances_app[1]}",
+                "ansible_user": "ubuntu"
+            },
+            "${yc_instances_db[0]}": {
+                "ansible_host": "${yc_instances_db[1]}",
+                "ansible_user": "ubuntu"
+            }
+        }
+    },
+    "all": {
+        "children": [
+            "app",
+            "db",
+            "ungrouped"
+        ]
+    },
+    "app": {
+        "hosts": [
+            "${yc_instances_app[0]}"
+        ]
+    },
+    "db": {
+        "hosts": [
+            "${yc_instances_db[0]}"
+        ]
+    }
+}
+EOF
+
+elif [[ "$1" == "--host" ]]; then
+cat<<EOF
+{
+    "_meta": {
+        "hostvars": {}
+    }
+}
+EOF
+else
+  echo "no args"
+fi
+
+```
+
+По сути данный скрипт формирует вывод в формате динамического json для ansible. Нам необходимо поставить пользователя и данные по имени хоста и IP адресу. Эти данные мы можем получить командой:
+
+```
+yc compute instance list
+
++----------------------+------------+---------------+---------+----------------+-------------+
+|          ID          |    NAME    |    ZONE ID    | STATUS  |  EXTERNAL IP   | INTERNAL IP |
++----------------------+------------+---------------+---------+----------------+-------------+
+| fhm9g674at6t32qih5qh | reddit-app | ru-central1-a | RUNNING | 217.28.231.186 | 10.128.0.23 |
+| fhmjtpqe5627d5a01fqf | reddit-db  | ru-central1-a | RUNNING | 217.28.231.232 | 10.128.0.3  |
++----------------------+------------+---------------+---------+----------------+-------------+
+```
+
+нам нужны поля NAME и EXTERNAL_IP, сделаем вывод в переменные:
+
+```
+yc_instances_app=($(yc compute instance list | grep app | awk -F\| '{print $3 $6}'))
+yc_instances_db=($(yc compute instance list | grep db |  awk -F\| '{print $3 $6}'))
+```
+
+Формируем скрипт и делаем его исполняемым.
+
+Осталось настроить `ansible.cfg` для работы с динамическим инвентори:
+
+```
+[defaults]
+#inventory = ./inventory
+inventory = ./inventory.json
+remote_user = ubuntu
+private_key_file = ~/.ssh/appuser
+host_key_checking = False
+retry_files_enabled = False
+
+[inventory]
+enable_plugins = script
+```
+
+> https://docs.ansible.com/ansible/latest/plugins/inventory.html
+
+Проверим результат:
+
+```
+ansible all -m ping 
+
+reddit-db | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+reddit-app | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+```
+
+Как видим имена хостов соотвествует инвентори, в статитке мы не задавали такие имена.
+
 </details>
