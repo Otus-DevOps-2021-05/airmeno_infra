@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/reddit
-ExecStart=/bin/bash -lc 'puma'
+ExecStart=/usr/local/bin/puma
 Restart=always
 
 [Install]

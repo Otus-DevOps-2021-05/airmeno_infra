@@ -1439,5 +1439,166 @@ variable enable_provision {
 }
 ```
 
+</details>
+
+# Lesson 10 (Ansible 1)
+
+## Знакомство с Ansible
+1. Установка и настройка Ansible
+2. YAML inventory
+3. Простой плейбук
+
+4. Динамический инвентори в формате json ⭐
+
+## Решение
+<details>
+  <summary>Решение</summary>
+
+### Установка Ansible
+
+В официальной документации Ansible существует подбробная инструкция по установке на каждую поддерживаемую ОС. В моем случае это Ubuntu и установлен из apt репозитория:
+
+```
+ansible --version
+
+ansible 2.10.5
+```
+
+что соответствует `requirements.txt`:
+
+```
+ansible>=2.4
+```
+
+Запустим инфраструктуру `stage` и на остнове outputs информации создадим ansible/inventory файл:
+
+```
+appserver ansible_host=178.154.204.210 ansible_user=appuser ansible_private_key_file=~/.ssh/appuser
+```
+
+и проверим:
+
+```
+ansible appserver -i ./inventory -m ping
+
+appserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+```
+
+добавим параметры для `dbserver` и повторим:
+
+```
+ansible all -i ./inventory -m ping
+
+appserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+dbserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+```
+
+Создаем `ansible.cfg` для переноса настроек из `inventory`, что упростит управление:
+
+```
+[defaults]
+inventory = ./inventory
+remote_user = appuser
+private_key_file = ~/.ssh/appuser
+host_key_checking = False
+retry_files_enabled = False
+``` 
+
+`inventory` приведем к виду:
+
+```
+appserver ansible_host=178.154.204.210
+dbserver ansible_host=84.201.174.175
+```
+
+проверим:
+
+```
+ansible all -m command -a uptime
+
+dbserver | CHANGED | rc=0 >>
+ 13:08:30 up 14 min,  1 user,  load average: 0.00, 0.00, 0.00
+appserver | CHANGED | rc=0 >>
+ 13:08:30 up 14 min,  1 user,  load average: 0.00, 0.00, 0.00
+
+```
+
+Еще раз отредактируем `inventory` для работы с группами хостов:
+
+```
+[app]
+appserver ansible_host=178.154.204.210
+
+[db]
+dbserver ansible_host=84.201.174.175
+```
+
+### YAML inventory
+
+Создаем наш `inventory.yaml`:
+
+```
+app:
+  hosts:
+    appserver:
+      ansible_host: 178.154.204.210
+
+db:
+  hosts:
+    dbserver:
+      ansible_host: 84.201.174.175
+```
+
+и проверим:
+
+```
+ansible all -m ping -i inventory.yml
+
+dbserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+appserver | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+```
+
+### Простой плейбук
+
+Пишем простой плейбук clone.yml:
+
+```
+---
+- name: Clone
+  hosts: app
+  tasks:
+    - name: Clone repo
+      git:
+        repo: https://github.com/express42/reddit.git
+        dest: /home/appuser/reddit
+```
 
 </details>
