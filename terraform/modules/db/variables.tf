@@ -15,7 +15,3 @@ variable enable_provision {
   description = "Enable provisioner"
   default     = true
 }
-variable enable_provision {
-  description = "Enable provisioner"
-  default     = true
-}
