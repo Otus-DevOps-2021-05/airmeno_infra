@@ -45,5 +45,4 @@ resource "yandex_compute_instance" "app" {
     provisioner "remote-exec" {
       script = "${path.module}/files/deploy.sh"
     }
-  }
 }
