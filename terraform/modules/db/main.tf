@@ -23,12 +23,13 @@ resource "yandex_compute_instance" "db" {
   metadata = {
     ssh-keys = "ubuntu:${file(var.public_key_path)}"
   }
+}
 
-  resource "null_resource" "db" {
-    count = var.enable_provision ? 1 : 0
-    triggers = {
-      cluster_instance_ids = yandex_compute_instance.db.id
-    }
+resource "null_resource" "db" {
+  count = var.enable_provision ? 1 : 0
+  triggers = {
+    cluster_instance_ids = yandex_compute_instance.db.id
+  }
 
     connection {
       type        = "ssh"
@@ -45,5 +46,4 @@ resource "yandex_compute_instance" "db" {
     provisioner "remote-exec" {
       script = "${path.module}/files/deploy.sh"
     }
-  }
 }
