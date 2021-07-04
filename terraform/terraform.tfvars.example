@@ -6,3 +6,7 @@ public_key_path = "~/.ssh/ubuntu.pub"
 subnet_id = "abc123def"
 service_account_key_file = "terraform.json"
 private_key_path = "~/.ssh/ubuntu"
+access_key = "access_key"
+secret_key = "secret_key"
+bucket_name = "test"
+enable_provision = true

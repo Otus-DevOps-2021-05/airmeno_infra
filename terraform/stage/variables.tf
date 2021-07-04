@@ -42,16 +42,3 @@ variable db_disk_image {
   description = "Disk image for mongodb"
   default     = "reddit-db-base"
 }
-variable access_key {
-  description = "key id"
-}
-variable secret_key {
-  description = "secret key"
-}
-variable bucket_name {
-  description = "bucket name"
-}
-variable enable_provision {
-  description = "Enable provisioner"
-  default     = true
-}

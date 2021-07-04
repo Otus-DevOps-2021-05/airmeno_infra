@@ -897,3 +897,547 @@ terraform apply -auto-approve
 * нет общей базы mongodb (при потере инстанса, теряем и его базу).
 
 </details>
+
+
+</details>  
+
+# Lesson 9 (YC Terraform 2)
+
+## Задание
+
+1. Настройка окружения
+2. Два образа Packer
+3. Разбиваем main.tf на части
+4. Модули
+5. Переиспользование модулей 
+
+6. Хранение стейт файла в удаленном бекенде ⭐
+7. Добавить необходимые provisioner в модули ⭐⭐
+
+## Решение
+<details>
+  <summary>Решение</summary>
+
+### 1. Настройка окружения
+
+Создаем ветку `terraform-2` и переносим файлы:
+
+```
+git checkout -b terraform-2
+
+git mv terraform/lb.tf terraform/files/
+```
+
+Зададим IP для инстанса с приложением в виде внешнего ресурса, в `main.tf` добавим:
+
+```
+resource "yandex_vpc_network" "app-network" {
+  name = "reddit-app-network"
+}
+
+resource "yandex_vpc_subnet" "app-subnet" {
+  name           = "reddit-app-subnet"
+  zone           = "ru-central1-a"
+  network_id     = "${yandex_vpc_network.app-network.id}"
+  v4_cidr_blocks = ["192.168.10.0/24"]
+}
+```
+
+И добавим в настройки ссылку на созданный сетевой ресурс:
+
+```
+  network_interface {
+    subnet_id = yandex_vpc_subnet.app-subnet.id
+    nat = true
+  }
+```
+
+Проверим как работают зависимости:
+
+```
+terraform destroy
+terraform plan
+terraform apply
+```
+
+Можно увидеть, что ресурсы создается не паралельно, а в зависимости одного от другого. 
+
+
+### 2. Два образа Packer (app и db)
+
+Создаем 2 файла на основе готового `ubuntu16.json` и разносим для Packer образы системы. Меням параметры для каждого образа и оставлем только его провижн:
+
+```
+"image_name": "reddit-app-base-{{timestamp}}",
+"image_family": "reddit-app-base",
+
+-----
+
+image_name": "reddit-db-base-{{timestamp}}",
+"image_family": "reddit-db-base",
+```
+
+Соберем образы:
+
+```
+packer validate -var-file=./variables.json ./db.json
+packer build -var-file=./variables.json ./db.json
+
+packer validate -var-file=./variables.json ./app.json
+packer build -var-file=./variables.json ./app.json
+```
+
+### 3. Разбиваем main.tf на части
+
+Разобьем конфиг main.tf на несколько конфигов и добавим новые переменные:
+
+в variables.tf
+```
+variable app_disk_image {
+  description = "Disk image for reddit app"
+  default     = "reddit-app-base"
+}
+variable db_disk_image {
+  description = "Disk image for mongodb"
+  default     = "reddit-db-base"
+```
+
+в terraform.tfvars
+```
+app_disk_image = "reddit-app-base"
+db_disk_image = "reddit-db-base"
+```
+
+Создаем файл `app.tf`:
+
+```
+resource "yandex_compute_instance" "app" {
+  name = "reddit-app"
+
+  labels = {
+    tags = "reddit-app"
+  }
+  resources {
+    cores  = 2
+    memory = 2
+  }
+
+  boot_disk {
+    initialize_params {
+      image_id = var.app_disk_image
+    }
+  }
+
+  network_interface {
+    subnet_id = yandex_vpc_subnet.app-subnet.id
+    nat = true
+  }
+
+  metadata = {
+  ssh-keys = "ubuntu:${file(var.public_key_path)}"
+  }
+}
+```
+Создаем файл `db.tf`:
+
+```
+resource "yandex_compute_instance" "db" {
+  name = "reddit-db"
+  labels = {
+    tags = "reddit-db"
+  }
+
+  resources {
+    cores  = 2
+    memory = 2
+  }
+
+  boot_disk {
+    initialize_params {
+      image_id = var.db_disk_image
+    }
+  }
+
+  network_interface {
+    subnet_id = yandex_vpc_subnet.app-subnet.id
+    nat = true
+  }
+
+  metadata = {
+  ssh-keys = "ubuntu:${file(var.public_key_path)}"
+  }
+}
+```
+
+Создаем файл `vpc.tf`:
+
+```
+resource "yandex_vpc_network" "app-network" {
+  name = "app-network"
+}
+
+resource "yandex_vpc_subnet" "app-subnet" {
+  name           = "app-subnet"
+  zone           = "ru-central1-a"
+  network_id     = "${yandex_vpc_network.app-network.id}"
+  v4_cidr_blocks = ["192.168.10.0/24"]
+}
+```
+
+`main.tf` приходит к виду:
+
+```
+provider "yandex" {
+  version                  = 0.35
+  service_account_key_file = var.service_account_key_file
+  cloud_id                 = var.cloud_id
+  folder_id                = var.folder_id
+  zone                     = var.zone
+}
+```
+
+правим `outputs.tf`:
+
+```
+output "external_ip_address_app" {
+  value = yandex_compute_instance.app.network_interface.0.nat_ip_address
+}
+output "external_ip_address_db" {
+  value = yandex_compute_instance.db.network_interface.0.nat_ip_address
+}
+```
+
+Протестируем новую конфигурацию:
+
+```
+terraform plan
+terraform apply
+```
+
+Для проверки убедимся, что имеет доступ по ssh к ВМ.
+
+### 4. Модули
+
+Создаем модульную инфраструктуру, в папке terraform cоздаем папку modules, внутри директории modules еще две директории: app и db и в каждой папке создаем структуру из main.tf, outputs.ft и variables.tf:
+
+В main.tf перенесем данные из app.tf и db.tf соответсвенно. Определим переменные модулей и outputs. 
+
+После из папки terraform удаляем уже ненужные файлы `app.tf`, `db.tf`, `vpc.tf` и правим `outputs.tf`:
+
+```
+output "external_ip_address_app" {
+  value = module.app.external_ip_address_app
+}
+output "external_ip_address_db" {
+  value = module.db.external_ip_address_db
+}
+```
+
+Загружаем модули:
+
+```
+terraform get
+```
+
+Собираем окружение:
+```
+terraform plan
+terraform apply
+```
+
+### 5. Переиспользование модулей
+
+Создаем директории `prod` и `stage` в `terraform` и копируем файлы main.tf, variables.tf, outputs.tf,
+terraform.tfvars, key.json из директории terraform в каждую из созданных директорий.
+
+В stage и prod корректируем пути к модулям в main.tf:
+
+```
+module "app" {
+  source          = "../modules/app"
+  public_key_path = var.public_key_path
+  app_disk_image  = var.app_disk_image
+  subnet_id       = var.subnet_id
+}
+
+module "db" {
+  source          = "../modules/db"
+  public_key_path = var.public_key_path
+  db_disk_image   = var.db_disk_image
+  subnet_id       = var.subnet_id
+}
+```
+
+Правим синтаксис:
+```
+terraform fmt
+```
+
+и проверяем на каждом стенде:
+
+```
+terraform init
+terraform apply
+```
+
+Должны получить идентичные окружения.
+
+### 6. Хранение стейт файла в удаленном бекенде ⭐
+
+Создаем внешней бекенд:
+
+```
+provider "yandex" {
+  token     = "<OAuth>"
+  cloud_id  = "<идентификатор облака>"
+  folder_id = "<идентификатор каталога>"
+  zone      = "ru-central1-a"
+}
+
+resource "yandex_storage_bucket" "test" {
+  access_key = "<идентификатор статического ключа>"
+  secret_key = "<секретный ключ>"
+  bucket = "<имя бакета>"
+}
+```
+
+Нам необходимы данные access_key и secret_key. Сгенерируем для сервисного аккаунта terraform:
+
+```
+yc iam service-account list
+
+yc iam access-key create --service-account-name terraform
+```
+
+где:
+
+```
+access_key = key_id
+
+secret_key = secret
+```
+
+Полученные параметы добавим в переменные `variables.tf` и :
+
+```
+variable access_key {
+  description = "key id"
+}
+variable secret_key {
+  description = "secret key"
+}
+variable bucket_name {
+  description = "bucket name"
+}
+```
+
+> https://cloud.yandex.ru/docs/storage/operations/buckets/create
+> https://registry.terraform.io/providers/yandex-cloud/yandex/latest/docs
+
+Создаем бакет:
+
+```
+terraform plan
+terraform apply
+```
+
+В средах prod и stage создаем `backend.tf`:
+
+```
+cat prod/backend.tf
+
+terraform {
+  backend "s3" {
+    endpoint   = "storage.yandexcloud.net"
+    bucket     = "otus-meno"
+    region     = "ru-central1"
+    key        = "prod/terraform.tfstate"
+    access_key = "key_id"
+    secret_key = "secret"
+
+
+    skip_region_validation      = true
+    skip_credentials_validation = true
+   }
+}
+```
+> К сожалению `backend "s3"` не хочет принимать переменные в формате `var.var_name`
+
+После можно запускать проекты и `.tfstate` файлы будут храниться в бакете и одновремнно запускать создание инстансов не получится из-за блокировки со сторны s3.
+
+
+### 7. Добавить необходимые provisioner в модули ⭐⭐
+
+В первую очередь надо узнать каким образом наше приложение соеденяется с базой mongo-db и наш mongo-db должен слушать наш сетевой адрес на подключение.
+
+Создадим два `.tmpl` файла: puma.service.tmpl - это шаблон для нашего systemd unit файла, mongod.conf.tmpl - конфиг нашего mongo-db.
+
+
+```
+cat puma.service.tmpl
+
+[Unit]
+Description=Puma HTTP Server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Environment=DATABASE_URL=${mongod_ip}
+WorkingDirectory=/home/ubuntu/reddit
+ExecStart=/bin/bash -lc 'puma'
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+где DATABASE_URL=${mongod_ip} - адрес инстанса db.
+
+
+```
+cat mongodb.conf
+
+....
+
+# network interfaces
+net:
+  port: 27017
+  bindIp: ${mongod_ip}
+....  
+
+```
+
+данные шаблоны и скрипт deploy.sh разместим в директориях files для каждого инстанса и приведем к описанному виду:
+
+```
+mkdir modules/app/files
+mkdir modules/db/files
+
+cp files/deploy.sh modules/app/files; cp files/puma.service modules/app/files/puma.service.tmpl
+```
+
+Добавим провижионеры в `main.tf` app:
+
+```
+  connection {
+    type        = "ssh"
+    host        = yandex_compute_instance.app.network_interface[0].nat_ip_address
+    user        = "ubuntu"
+    agent       = false
+    private_key = file(var.private_key_path)
+  }
+  provisioner "file" {
+    content     = templatefile("${path.module}/files/puma.service.tmpl", { mongod_ip = var.mongod_ip})
+    destination = "/tmp/puma.service"
+  }
+
+  provisioner "remote-exec" {
+    script = "${path.module}/files/deploy.sh"
+  }
+```
+
+Добавим провижионеры в `main.tf` db:
+
+```
+  connection {
+    type        = "ssh"
+    host        = yandex_compute_instance.db.network_interface[0].nat_ip_address
+    user        = "ubuntu"
+    agent       = false
+    private_key = file(var.private_key_path)
+  }
+  provisioner "file" {
+    content     = templatefile("${path.module}/files/mongod.conf.tmpl", { mongob_ip = yandex_compute_instance.db.network_interface.0.ip_address})
+    destination = "/tmp/mongod.conf"
+  }
+
+  provisioner "remote-exec" {
+    script = "${path.module}/files/deploy.sh"
+  }
+
+```
+
+и создадим простой скрипт, который перенесет конфиг mongo-db и сделает рестарт:
+
+```
+cat db/files/deploy.sh
+
+sudo mv -f /tmp/mongod.conf /etc/mongod.conf
+sudo systemctl restart mongod
+```
+
+Добавим значение `mongod_ip` в db/outputs.ff:
+```
+output "internal_ip_address_db" {
+  value = yandex_compute_instance.db.network_interface.0.ip_address
+}
+```
+
+Модули настроили, теперь внесем изменения в `main.tf` наших сред (prod или stage):
+
+```
+module "app" {
+  source           = "../modules/app"
+  public_key_path  = var.public_key_path
+  private_key_path = var.private_key_path
+  app_disk_image   = var.app_disk_image
+  subnet_id        = var.subnet_id
+  mongod_ip        = module.db.internal_ip_address_db
+}
+```
+
+> module.db.internal_ip_address_db - это значение output из модуля db -> outputs.tf
+
+Проверим:
+
+```
+terraform plan
+terraform apply
+```
+
+Результат - наше приложение задеплоилось автоматически и доступно по http://app_ip:9292
+
+
+**Опционально. Реализовать отключение provisioner в зависимости от значения переменной**
+
+Для решения данной задачи подойдет ресурс null_resource. 
+
+*null_resource это обычные ресурсы, но ничего не делают.*
+> https://www.terraform.io/docs/language/resources/provisioners/null_resource.html
+
+В качестве переменной значения включено/выключено используем аргумент count в качестве условного выражения (Conditional Expressions).
+
+> https://www.terraform.io/docs/language/meta-arguments/count.html
+> https://www.terraform.io/docs/language/expressions/conditionals.html
+
+
+Добавим в `main.tf` наших модулей app и db следующий код перед connection соответственно:
+
+```
+resource "null_resource" "app" {
+  count = var.enable_provision ? 1 : 0
+  triggers = {
+    cluster_instance_ids = yandex_compute_instance.app.id
+  }
+
+```
+
+```
+resource "null_resource" "db" {
+  count = var.enable_provision ? 1 : 0
+  triggers = {
+    cluster_instance_ids = yandex_compute_instance.db.id
+  }
+```
+
+Добавим переменную в `variables.tf`:
+
+```
+variable enable_provision {
+  description = "Enable provisioner"
+  default = true
+}
+```
+
+
+</details>
