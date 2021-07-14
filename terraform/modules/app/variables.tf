@@ -16,5 +16,5 @@ variable private_key_path {
 }
 variable enable_provision {
   description = "Enable provisioner"
-  default     = true
+  default     = false
 }
