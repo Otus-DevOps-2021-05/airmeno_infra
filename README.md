@@ -1743,9 +1743,3 @@ reddit-app | SUCCESS => {
 Разносим наш плейбук на: app.yml, db.yml, deploy.yml
 
 5. Формируем плейбуки для Packer provisioner [App](ansible/packer_app.yml) и [DB](ansible/packer_db.yml), вносим изменения в [packer/app.json](packer/app.json) и [packer/db.json](packer/db.json).
-
-
-### Задание со ⭐: dynamic inventory 
-
-С оптимальной точки зрения для динамической реализации в плейбуках не хватает параметра IP инстанса DB. Это на данном этапе единственное значение которое приходится менять при деплое. Попробуем его превратить в динамичскую переменную.
-
