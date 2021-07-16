@@ -1719,3 +1719,27 @@ reddit-app | SUCCESS => {
 Как видим имена хостов соотвествует инвентори, в статитке мы не задавали такие имена.
 
 </details>
+
+
+# Lesson 11 (Ansible 2)
+
+## Деплой и управление конфигурацией с Ansible
+
+1. Используем плейбуки, хендлеры
+2. Один плейбук, но много сценариев и много плейбуков
+3. Провижн образов Packer на Ansible-плейбуки
+
+4. Задание со ⭐: dynamic inventory 
+
+## Решение
+<details>
+  <summary>Решение</summary>
+
+
+1. Создаем новую ветку `ansible-2`. 
+2. Пишем плейбук reddit_app.yml.
+3. Пишем плейбук reddit_app2.yml.
+4. Переименовываем плейбуки reddit_app.yml => reddit_app_one_play.yml, reddit_app2.yml => reddit_app_multiple_plays.yml.
+Разносим наш плейбук на: app.yml, db.yml, deploy.yml
+
+5. Формируем плейбуки для Packer provisioner [App](ansible/packer_app.yml) и [DB](ansible/packer_db.yml), вносим изменения в [packer/app.json](packer/app.json) и [packer/db.json](packer/db.json).
