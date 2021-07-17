@@ -1743,3 +1743,61 @@ reddit-app | SUCCESS => {
 Разносим наш плейбук на: app.yml, db.yml, deploy.yml
 
 5. Формируем плейбуки для Packer provisioner [App](ansible/packer_app.yml) и [DB](ansible/packer_db.yml), вносим изменения в [packer/app.json](packer/app.json) и [packer/db.json](packer/db.json).
+</details>
+
+
+# Lesson 12 (Ansible 3)
+
+## Работа с ролями и окружениями
+
+1. Создаем инфраструктуру под роли:
+```
+ansible-galaxy init app
+ansible-galaxy init db
+```
+Переносим наши плейбуки в роли, модифицируем плейбуки в запуск роли.
+
+2. Переносим наши переменнные окружения `ansible/environments` в две директории окружений `stage` и `prod`.
+
+3. Модифицируем ansible.cfg.
+
+4. Директорию `ansible` организуем согласно Best Practices.
+
+5. Из Ansible Galaxy используем роль `jdauphant.nginx` и настраиваем обратное проксирование с помощью nginx.
+
+Создадим файлы `environments/stage/requirements.yml` и `environments/prod/requirements.yml` и добавим:
+```
+- src: jdauphant.nginx
+  version: v2.21.1
+```
+Установим роль:
+```
+ansible-galaxy install -r environments/stage/requirements.yml
+```
+Добавим переменные в `stage/group_vars/app` и `prod/group_vars/app`
+
+```
+nginx_sites:
+  default:
+    - listen 80
+    - server_name "reddit"
+    - location / {
+        proxy_pass http://127.0.0.1:9292;
+      }
+```
+
+Добавим вызов роли jdauphant.nginx в плейбук `app.yml`. Применим плейбук `ansible-playbook playbooks/site.yml` и убедимся что наша служба доступна на 80-м порту.
+
+6. Работа с Ansible Vault
+
+Подготовим необходимое окружение, создадим файл `vault.key` в `~/.ansible/` и зашифруем наши файлы с паролями пользователей:
+
+```
+ansible-vault encrypt environments/prod/credentials.yml
+ansible-vault encrypt environments/stage/credentials.yml
+```
+Убедимся, что файлы зашифрованы и добавим вызов плейбука в файл `site.yml`.
+
+### Задание со ⭐
+
+Чтоб не вводить каждый раз переменную `db_host:` в `ansible/environments/stage/group_vars/app` сделаем его динамически определеямой в [inventory.json](ansible/environments/prod/inventory.json).  
