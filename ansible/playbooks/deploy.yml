@@ -4,7 +4,7 @@
   tasks:
     - name: install git
       become: true
-      apt: 
+      apt:
         name: git
         state: present
 
@@ -23,4 +23,6 @@
   handlers:
     - name: restart puma
       become: true
-      systemd: name=puma state=restarted
+      systemd: 
+        name: puma
+        state: restarted
