@@ -8,7 +8,7 @@
     repo: deb [ arch=amd64,arm64 ] http://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/4.2 multiverse
     state: present
 
-- name: Install mongodb 
+- name: Install mongodb
   apt:
     name: mongodb-org
     state: present
